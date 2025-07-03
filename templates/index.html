@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>🔍 Port Scanner</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+</head>
+<body>
+  <div class="container">
+    <h1>Advanced Nmap Port Scanner</h1>
+
+    <label for="targets">Target(s):</label>
+    <input type="text" id="targets" placeholder="e.g., 192.168.1.1, google.com" />
+
+    <label for="portOption">Scan Type:</label>
+    <select id="portOption">
+      <option value="1">All Ports (1-65535)</option>
+      <option value="2">Custom Port(s)</option>
+      <option value="3" selected>Top 10 Common Ports</option>
+      <option value="4">Top 20 Common Ports</option>
+      <option value="5">Top 30 Common Ports</option>
+    </select>
+
+    <div id="customPortDiv" style="display:none;">
+      <label for="customPort">Enter Port(s)/Range:</label>
+      <input type="text" id="customPort" placeholder="e.g., 80 or 20-100" />
+    </div>
+
+    <button onclick="startScan()">Start Scan</button>
+
+    <div id="results"></div>
+  </div>
+
+  <script>
+    document.getElementById("portOption").addEventListener("change", function () {
+      const custom = document.getElementById("customPortDiv");
+      custom.style.display = this.value === "2" ? "block" : "none";
+    });
+
+    async function startScan() {
+      const targets = document.getElementById("targets").value;
+      const portOption = document.getElementById("portOption").value;
+      const customPort = document.getElementById("customPort").value;
+
+      const response = await fetch("/scan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ targets, ports: portOption, customPort })
+      });
+
+      const results = await response.json();
+      const resultsDiv = document.getElementById("results");
+      resultsDiv.innerHTML = "";
+
+      results.forEach(result => {
+        let html = `<div class="result-box"><h3>Host: ${result.host}`;
+
+        if (result.hostname && result.hostname !== "") {
+          html += ` (${result.hostname})`;
+        }
+
+        html += `</h3><p>State: ${result.state || "Unknown"}</p>`;
+
+        if (result.protocols && result.protocols.length > 0) {
+          result.protocols.forEach(proto => {
+            html += `<h4>Protocol: ${proto.protocol}</h4>`;
+            html += "<table><tr><th>Port</th><th>Service</th><th>Status</th></tr>";
+
+            proto.ports.forEach(p => {
+              html += `<tr><td>${p.port}</td><td>${p.service}</td><td>${p.state}</td></tr>`;
+            });
+
+            html += "</table>";
+          });
+        } else if (result.error) {
+          html += `<p style="color:red;">${result.error}</p>`;
+        }
+
+        html += "</div>";
+        resultsDiv.innerHTML += html;
+      });
+    }
+  </script>
+</body>
+</html>
