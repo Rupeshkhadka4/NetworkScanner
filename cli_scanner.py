@@ -1,78 +1,132 @@
-#!/usr/bin/env python3
+from flask import Flask, render_template, request, jsonify, send_file
+from fpdf import FPDF
 import nmap
+import os
+import json
+import tempfile
 
-def get_scan_ports():
-    """Prompt user to choose scan type and return appropriate port string."""
-    top_ports = [
-        21, 22, 23, 25, 53, 80, 110, 135, 139, 143,   # Top 10
-        443, 445, 993, 995, 1723, 3306, 3389, 5900, 8080, 8443,  # Top 20
-        20, 111, 161, 389, 514, 1025, 1080, 1433, 1521, 3128     # Top 30
-    ]
+app = Flask(__name__)
+nm = nmap.PortScanner()
 
-    print("\nChoose scan option:")
-    print("1. All ports (1-65535)")
-    print("2. Specific port or range (e.g., 80 or 20-100)")
-    print("3. Top 10 common ports")
-    print("4. Top 20 common ports")
-    print("5. Top 30 common ports")
+# Common top ports
+COMMON_PORTS = {
+    "basic": "21,22,23,25,53,80,110,135,139,143,443,445",
+    "top10": "21,22,23,25,53,80,110,135,139,443",
+    "top20": "21,22,23,25,53,79,80,110,135,139,143,443,445,993,995,1723,3306,3389,5900,8080",
+    "top30": "21,22,23,25,53,79,80,81,110,111,135,139,143,443,445,993,995,1723,3000,3306,3389,5000,5900,7070,8000,8080,8888,9090,9091,9200",
+    "top40": "21,22,23,25,53,79,80,81,110,111,119,123,135,139,143,443,445,500,514,515,993,995,1025,1026,1027,1028,1029,1080,1194,1433,1723,1900,3306,3389,5000,5060,5900,7070,8000,8080",
+    "top50": "21,22,23,25,53,79,80,81,88,110,111,119,123,135,139,143,161,443,445,500,514,515,587,993,995,1025,1026,1027,1028,1029,1080,1194,1433,1723,1900,2049,3000,3306,3389,5000,5060,5900,7070,8000,8080,8888,9090,9091,9200,9999,30000",
+    "range50to100": "1-100",
+    "range100to200": "100-200",
+    "allports": "1-65535"
+}
 
-    choice = input("Enter choice (1-5): ").strip()
+@app.route('/')
+def index():
+    return render_template('index.html')
 
-    if choice == "1":
-        return "1-65535"
-    elif choice == "2":
-        return input("Enter port(s)/range (e.g., 80 or 20-25): ").strip()
-    elif choice == "3":
-        return ",".join(map(str, top_ports[:10]))
-    elif choice == "4":
-        return ",".join(map(str, top_ports[:20]))
-    elif choice == "5":
-        return ",".join(map(str, top_ports[:30]))
+@app.route('/scan', methods=['POST'])
+def scan():
+    data = request.json
+    targets = [t.strip() for t in data.get("targets", "").split(",") if t.strip()]
+    port_type = data.get("port_type")
+    custom_ports = data.get("custom_ports", "")
+    scan_type = data.get("scan_type", "-sT")
+    os_detection = data.get("os_detection", False)
+    aggressive = data.get("aggressive", False)
+    no_ping = data.get("no_ping", False)
+
+    # Determine ports
+    if port_type == "custom":
+        ports = custom_ports
     else:
-        print("[!] Invalid choice. Defaulting to Top 10 ports.")
-        return ",".join(map(str, top_ports[:10]))
+        ports = COMMON_PORTS.get(port_type, "21,22,25,80")
 
+    args = scan_type
+    if os_detection:
+        args += " -O"
+    if aggressive:
+        args += " -A"
+    if no_ping:
+        args += " -Pn"
 
-def main():
-    print("🔍 Advanced Nmap Port Scanner")
-    print("-----------------------------")
-
-    targets_input = input("Enter target IPs or hostnames (comma-separated): ")
-    targets = [t.strip() for t in targets_input.split(',')]
-
-    ports = get_scan_ports()
-
-    print(f"\n[+] Starting scan on {len(targets)} target(s), ports: {ports}")
-    scanner = nmap.PortScanner()
+    results = []
 
     for target in targets:
-        print(f"\n🚀 Scanning {target}...")
         try:
-            scanner.scan(hosts=target, ports=ports, arguments='-sS -T4')
+            nm.scan(hosts=target, ports=ports, arguments=args)
+            host_data = {}
 
-            if not scanner.scaninfo():
-                print(f"[-] No results for {target}. Host may be unreachable.")
-                continue
+            if not nm.scaninfo():
+                host_data[target] = {"error": "No response or host unreachable."}
+            else:
+                for host in nm.all_hosts():
+                    host_info = {
+                        "hostname": nm[host].hostname(),
+                        "state": nm[host].state(),
+                        "protocols": {},
+                        "os_match": []
+                    }
 
-            for host in scanner.all_hosts():
-                print(f"\nHost: {host} ({scanner[host].hostname()})")
-                print(f"State: {scanner[host].state()}")
+                    if 'osmatch' in nm[host]:
+                        for os in nm[host]['osmatch']:
+                            host_info["os_match"].append({
+                                "name": os['name'],
+                                "accuracy": os['accuracy']
+                            })
 
-                for proto in scanner[host].all_protocols():
-                    print(f"\nProtocol: {proto.upper()}")
-                    ports_dict = scanner[host][proto]
-                    open_ports = sorted(ports_dict.keys())
-
-                    if open_ports:
-                        for port in open_ports:
-                            info = ports_dict[port]
-                            print(f"Port {port}/{proto.upper()} - {info['name']} - {info['state'].upper()}")
-                    else:
-                        print("No open ports found.")
-
+                    for proto in nm[host].all_protocols():
+                        proto_data = {}
+                        ports_dict = nm[host][proto]
+                        for port in sorted(ports_dict.keys()):
+                            proto_data[port] = {
+                                "name": ports_dict[port]['name'],
+                                "state": ports_dict[port]['state'],
+                                "reason": ports_dict[port].get('reason', 'unknown')
+                            }
+                        host_info["protocols"][proto] = proto_data
+                    host_data[host] = host_info
+            results.append(host_data)
         except Exception as e:
-            print(f"[-] Error scanning {target}: {str(e)}")
+            results.append({target: {"error": str(e)}})
 
+    return jsonify(results)
 
-if __name__ == "__main__":
-    main()
+@app.route('/export_pdf', methods=['POST'])
+def export_pdf():
+    scan_results = request.json.get("results", [])
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.set_font("Arial", size=12)
+
+    for result in scan_results:
+        for host, info in result.items():
+            pdf.cell(0, 10, txt=f"Host: {host}", ln=True)
+            if "hostname" in info and info["hostname"]:
+                pdf.cell(0, 10, txt=f"Hostname: {info['hostname']}", ln=True)
+            if "state" in info:
+                pdf.cell(0, 10, txt=f"State: {info['state']}", ln=True)
+
+            if "os_match" in info and info["os_match"]:
+                pdf.cell(0, 10, txt="OS Matches:", ln=True)
+                for os in info["os_match"]:
+                    pdf.cell(0, 10, txt=f" - {os['name']} ({os['accuracy']}%)", ln=True)
+
+            if "protocols" in info:
+                for proto, ports in info["protocols"].items():
+                    pdf.cell(0, 10, txt=f"{proto.upper()} Ports:", ln=True)
+                    for port, pinfo in ports.items():
+                        pdf.cell(0, 10, txt=f" - Port {port}: {pinfo['name']} - {pinfo['state']}", ln=True)
+
+            pdf.ln(10)
+
+    # Save PDF temporarily
+    temp_dir = tempfile.gettempdir()
+    file_path = os.path.join(temp_dir, "scan_report.pdf")
+    pdf.output(file_path)
+
+    return send_file(file_path, as_attachment=True, download_name="scan_report.pdf")
+
+if __name__ == '__main__':
+    app.run(debug=True)
