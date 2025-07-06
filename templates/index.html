@@ -1,86 +1,63 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>🔍 Port Scanner</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+    <meta charset="UTF-8">
+    <title>Advanced Network Scanner</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-  <div class="container">
-    <h1>Advanced Nmap Port Scanner</h1>
 
-    <label for="targets">Target(s):</label>
-    <input type="text" id="targets" placeholder="e.g., 192.168.1.1, google.com" />
+<div class="container">
+    <h1>Network Scanner</h1>
 
-    <label for="portOption">Scan Type:</label>
-    <select id="portOption">
-      <option value="1">All Ports (1-65535)</option>
-      <option value="2">Custom Port(s)</option>
-      <option value="3" selected>Top 10 Common Ports</option>
-      <option value="4">Top 20 Common Ports</option>
-      <option value="5">Top 30 Common Ports</option>
-    </select>
+    <form id="scanForm">
+        <label>Targets:</label>
+        <input type="text" id="targets" name="targets" value="127.0.0.1">
 
-    <div id="customPortDiv" style="display:none;">
-      <label for="customPort">Enter Port(s)/Range:</label>
-      <input type="text" id="customPort" placeholder="e.g., 80 or 20-100" />
-    </div>
+        <label>Port Selection:</label>
+        <select id="portType">
+            <option value="basic">Basic Scan</option>
+            <option value="top10">Top 10 Ports</option>
+            <option value="top20">Top 20 Ports</option>
+            <option value="top30">Top 30 Ports</option>
+            <option value="top40">Top 40 Ports</option>
+            <option value="top50">Top 50 Ports</option>
+            <option value="range50to100">Top 50 to 100</option>
+            <option value="range100to200">Top 100 to 200</option>
+            <option value="allports">All Ports (1-65535)</option>
+            <option value="custom">Custom Ports</option>
+        </select>
 
-    <button onclick="startScan()">Start Scan</button>
+        <div id="customPortGroup" style="display:none;">
+            <label>Custom Ports:</label>
+            <input type="text" id="customPorts" placeholder="e.g., 80,443,8080">
+        </div>
+
+        <label>Scan Type:</label>
+        <select id="scanType">
+            <option value="-sT">TCP Connect (-sT)</option>
+            <option value="-sS">SYN Stealth (-sS)</option>
+            <option value="-sU">UDP Scan (-sU)</option>
+            <option value="-sn">Ping Only (-sn)</option>
+        </select>
+
+        <label><input type="checkbox" id="osDetection"> Enable OS Detection (-O)</label>
+        <label><input type="checkbox" id="aggressive"> Enable Aggressive Mode (-A)</label>
+        <label><input type="checkbox" id="noPing"> Skip Host Discovery (-Pn)</label>
+
+        <button type="submit">Start Scan</button>
+        <button type="button" id="stopScan" disabled>Stop Scan</button>
+        <button type="button" id="exportPdf" disabled>Export to PDF</button>
+        <div id="loading" style="display:none;">⏳ Exporting to PDF...</div>
+    </form>
 
     <div id="results"></div>
-  </div>
 
-  <script>
-    document.getElementById("portOption").addEventListener("change", function () {
-      const custom = document.getElementById("customPortDiv");
-      custom.style.display = this.value === "2" ? "block" : "none";
-    });
+    <footer>
+        &copy; 2025 Rupesh Khadka | Network Scanner Tool
+    </footer>
+</div>
 
-    async function startScan() {
-      const targets = document.getElementById("targets").value;
-      const portOption = document.getElementById("portOption").value;
-      const customPort = document.getElementById("customPort").value;
-
-      const response = await fetch("/scan", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ targets, ports: portOption, customPort })
-      });
-
-      const results = await response.json();
-      const resultsDiv = document.getElementById("results");
-      resultsDiv.innerHTML = "";
-
-      results.forEach(result => {
-        let html = `<div class="result-box"><h3>Host: ${result.host}`;
-
-        if (result.hostname && result.hostname !== "") {
-          html += ` (${result.hostname})`;
-        }
-
-        html += `</h3><p>State: ${result.state || "Unknown"}</p>`;
-
-        if (result.protocols && result.protocols.length > 0) {
-          result.protocols.forEach(proto => {
-            html += `<h4>Protocol: ${proto.protocol}</h4>`;
-            html += "<table><tr><th>Port</th><th>Service</th><th>Status</th></tr>";
-
-            proto.ports.forEach(p => {
-              html += `<tr><td>${p.port}</td><td>${p.service}</td><td>${p.state}</td></tr>`;
-            });
-
-            html += "</table>";
-          });
-        } else if (result.error) {
-          html += `<p style="color:red;">${result.error}</p>`;
-        }
-
-        html += "</div>";
-        resultsDiv.innerHTML += html;
-      });
-    }
-  </script>
+<script src="{{ url_for('static', filename='script.js') }}"></script>
 </body>
 </html>
